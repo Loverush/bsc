@@ -80,6 +80,24 @@ func (h *handler) syncTransactions(p *eth.Peer) {
 	}
 }
 
+func (h *handler) syncVotes(p *eth.Peer) {
+	votes := h.votespool.Get()
+	if len(*votes) == 0 {
+		return
+	}
+	// The eth/65 protocol introduces proper transaction announcements, so instead
+	// of dripping transactions across multiple peers, just send the entire list as
+	// an announcement and let the remote side decide what they need (likely nothing).
+	if p.Version() >= eth.ETH68 {
+		hashes := make([]common.Hash, len(*votes))
+		for i, vote := range *votes {
+			hashes[i] = vote.Hash()
+		}
+		p.AsyncSendVotes(hashes)
+		return
+	}
+}
+
 // txsyncLoop64 takes care of the initial transaction sync for each new
 // connection. When a new peer appears, we relay all currently pending
 // transactions. In order to minimise egress bandwidth usage, we send
