@@ -79,12 +79,20 @@ type txPool interface {
 	SubscribeReannoTxsEvent(chan<- core.ReannoTxsEvent) event.Subscription
 }
 
+// votesPool defines the methods needed from a votes pool implementation to
+// support all the operations needed by the Ethereum chain protocols.
+type votesPool interface {
+	Put(peer *eth.Peer, hash common.Hash, vote types.VoteRecord) error
+	Get() *types.VoteRecords
+}
+
 // handlerConfig is the collection of initialization parameters to create a full
 // node network handler.
 type handlerConfig struct {
 	Database               ethdb.Database            // Database for direct sync insertions
 	Chain                  *core.BlockChain          // Blockchain to serve data from
 	TxPool                 txPool                    // Transaction pool to propagate from
+	VotesPool              votesPool                 // Votes pool to propagate from
 	Network                uint64                    // Network identifier to adfvertise
 	Sync                   downloader.SyncMode       // Whether to fast or full sync
 	DiffSync               bool                      // Whether to diff sync
@@ -110,10 +118,11 @@ type handler struct {
 	checkpointNumber uint64      // Block number for the sync progress validator to cross reference
 	checkpointHash   common.Hash // Block hash for the sync progress validator to cross reference
 
-	database ethdb.Database
-	txpool   txPool
-	chain    *core.BlockChain
-	maxPeers int
+	database  ethdb.Database
+	txpool    txPool
+	votespool votesPool
+	chain     *core.BlockChain
+	maxPeers  int
 
 	downloader   *downloader.Downloader
 	stateBloom   *trie.SyncBloom
@@ -152,6 +161,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		eventMux:               config.EventMux,
 		database:               config.Database,
 		txpool:                 config.TxPool,
+		votespool:              config.VotesPool,
 		chain:                  config.Chain,
 		peers:                  newPeerSet(),
 		whitelist:              config.Whitelist,
@@ -510,7 +520,7 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 		log.Trace("Propagated block", "hash", hash, "recipients", len(transfer), "duration", common.PrettyDuration(time.Since(block.ReceivedAt)))
 		return
 	}
-	// Otherwise if the block is indeed in out own chain, announce it
+	// Otherwise if the block is indeed in our own chain, announce it
 	if h.chain.HasBlock(hash, block.NumberU64()) {
 		for _, peer := range peers {
 			peer.AsyncSendNewBlockHash(block)
