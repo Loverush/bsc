@@ -562,13 +562,14 @@ func (s *PublicBlockChainAPI) GetBalance(ctx context.Context, address common.Add
 	return (*hexutil.Big)(state.GetBalance(address)), state.Error()
 }
 
-func (s *PublicBlockChainAPI) SetValidatorBehavior(noVoteProb, badVoteProb int) {
+func (s *PublicBlockChainAPI) SetValidatorBehavior(ctx context.Context, noVoteProb, badVoteProb int) (bool, error) {
 	if noVoteProb > 0 {
 		s.b.SetProbNoVote(noVoteProb)
 	}
 	if badVoteProb > 0 {
 		s.b.SetProbBreakVoteRules(badVoteProb)
 	}
+	return true, nil
 }
 
 // Result structs for GetProof
