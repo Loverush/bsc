@@ -154,4 +154,6 @@ type PoSA interface {
 	VerifyVote(chain ChainHeaderReader, vote *types.VoteEnvelope) bool
 	SetVotePool(votePool VotePool)
 	WithinValidatorSet(chain ChainHeaderReader, header *types.Header) bool
+
+	SetBackOffDelay(b bool)
 }
