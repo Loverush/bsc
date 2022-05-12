@@ -154,4 +154,6 @@ type PoSA interface {
 	VerifyVote(chain ChainHeaderReader, vote *types.VoteEnvelope) error
 	SetVotePool(votePool VotePool)
 	IsActiveValidatorAt(chain ChainHeaderReader, header *types.Header) bool
+
+	SetBackOffDelay(b bool)
 }
