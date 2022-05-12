@@ -105,6 +105,10 @@ func (m *mockPOSA) IsActiveValidatorAt(chain consensus.ChainHeaderReader, header
 	return true
 }
 
+func (m *mockPOSA) SetBackOffDelay(b bool) {
+	return
+}
+
 func (pool *VotePool) verifyStructureSizeOfVotePool(receivedVotes, curVotes, futureVotes, curVotesPq, futureVotesPq int) bool {
 	for i := 0; i < timeThreshold; i++ {
 		time.Sleep(1 * time.Second)
