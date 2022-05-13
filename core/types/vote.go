@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -47,6 +48,10 @@ type VoteAttestation struct {
 	AggSignature   BLSSignature     // The aggregated BLS signature of the voted validators' signatures.
 	Data           *VoteData        // The vote data for fast finality.
 	Extra          []byte           // Reserved for future usage.
+}
+
+func (v *VoteAttestation) String() string {
+	return fmt.Sprintf("set: %x, source: %d, target: %d", v.VoteAddressSet, v.Data.SourceNumber, v.Data.TargetNumber)
 }
 
 // Hash returns the vote's hash.

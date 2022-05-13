@@ -1,9 +1,16 @@
 package parlia
 
 import (
+	"context"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"testing"
+	"time"
+
+	"github.com/ethereum/go-ethereum/params"
+
+	"github.com/ethereum/go-ethereum/ethclient"
 
 	"golang.org/x/crypto/sha3"
 
@@ -594,4 +601,50 @@ func TestSimulateP2P(t *testing.T) {
 			t.Fatalf("[Testcase %d] chain not works as expected", index)
 		}
 	}
+}
+
+func TestGetHighestFinalizedNumber(t *testing.T) {
+	RPC := "http://172.22.41.197:8545"
+	client, err := ethclient.Dial(RPC)
+	if err != nil {
+		t.Fatalf("dial rpc failed: %v", err)
+	}
+
+	parliaConfig := &params.ParliaConfig{
+		Period: 3,
+		Epoch:  200,
+	}
+
+	chainConfig := &params.ChainConfig{
+		BonehBlock: big.NewInt(700),
+		LynnBlock:  big.NewInt(17000),
+	}
+
+	current := big.NewInt(16999)
+
+	startTime := time.Now()
+	justified, err := client.GetJustifiedHeader(context.Background(), current)
+	if err != nil {
+		t.Fatalf("get justified failed: %v", err)
+	}
+	usedTime := time.Since(startTime)
+
+	justifiedHeader, err := client.HeaderByNumber(context.Background(), new(big.Int).Add(justified.Number, big.NewInt(1)))
+	if err != nil {
+		t.Fatalf("get justified header failed: %v", err)
+	}
+
+	attestation, err := getVoteAttestationFromHeader(justifiedHeader, chainConfig, parliaConfig)
+	if err != nil {
+		t.Fatalf("get vote attestation failed: %v", err)
+	}
+	t.Logf("block: %d, justified: %d, vote: %s, usedTime: %dms", current.Uint64(), justified.Number.Uint64(), attestation.String(), usedTime.Milliseconds())
+
+	startTime = time.Now()
+	finalized, err := client.GetFinalizedNumber(context.Background(), current)
+	if err != nil {
+		t.Fatalf("get finalized number failed: %v", err)
+	}
+	usedTime = time.Since(startTime)
+	t.Logf("block: %d, finalized: %d, usedTime: %dms", current.Uint64(), finalized, usedTime.Milliseconds())
 }
