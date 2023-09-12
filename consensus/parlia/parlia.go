@@ -221,11 +221,12 @@ type Parlia struct {
 
 	lock sync.RWMutex // Protects the signer fields
 
-	ethAPI                     *ethapi.PublicBlockChainAPI
-	VotePool                   consensus.VotePool
-	validatorSetABIBeforeLuban abi.ABI
-	validatorSetABI            abi.ABI
-	slashABI                   abi.ABI
+	ethAPI                      *ethapi.PublicBlockChainAPI
+	VotePool                    consensus.VotePool
+	validatorSetABIBeforeLuban  abi.ABI
+	validatorSetABIBeforeFusion abi.ABI
+	validatorSetABI             abi.ABI
+	slashABI                    abi.ABI
 
 	// The fields below are for testing only
 	fakeDiff bool // Skip difficulty verifications
@@ -259,6 +260,10 @@ func New(
 	if err != nil {
 		panic(err)
 	}
+	vABIBeforeFusion, err := abi.JSON(strings.NewReader(validatorSetABIBeforeFusion))
+	if err != nil {
+		panic(err)
+	}
 	vABI, err := abi.JSON(strings.NewReader(validatorSetABI))
 	if err != nil {
 		panic(err)
@@ -268,17 +273,18 @@ func New(
 		panic(err)
 	}
 	c := &Parlia{
-		chainConfig:                chainConfig,
-		config:                     parliaConfig,
-		genesisHash:                genesisHash,
-		db:                         db,
-		ethAPI:                     ethAPI,
-		recentSnaps:                recentSnaps,
-		signatures:                 signatures,
-		validatorSetABIBeforeLuban: vABIBeforeLuban,
-		validatorSetABI:            vABI,
-		slashABI:                   sABI,
-		signer:                     types.LatestSigner(chainConfig),
+		chainConfig:                 chainConfig,
+		config:                      parliaConfig,
+		genesisHash:                 genesisHash,
+		db:                          db,
+		ethAPI:                      ethAPI,
+		recentSnaps:                 recentSnaps,
+		signatures:                  signatures,
+		validatorSetABIBeforeLuban:  vABIBeforeLuban,
+		validatorSetABIBeforeFusion: vABIBeforeFusion,
+		validatorSetABI:             vABI,
+		slashABI:                    sABI,
+		signer:                      types.LatestSigner(chainConfig),
 	}
 
 	return c
@@ -879,7 +885,7 @@ func (p *Parlia) assembleVoteAttestation(chain consensus.ChainHeaderReader, head
 	// Prepare vote address bitset.
 	for _, valInfo := range snap.Validators {
 		if _, ok := voteAddrSet[valInfo.VoteAddress]; ok {
-			attestation.VoteAddressSet |= 1 << (valInfo.Index - 1) //Index is offset by 1
+			attestation.VoteAddressSet |= 1 << (valInfo.Index - 1) // Index is offset by 1
 		}
 	}
 	validatorsBitSet := bitset.From([]uint64{uint64(attestation.VoteAddressSet)})
@@ -926,6 +932,13 @@ func (p *Parlia) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 	header.Extra = header.Extra[:extraVanity-nextForkHashSize]
 	nextForkHash := forkid.NextForkHash(p.chainConfig, p.genesisHash, number)
 	header.Extra = append(header.Extra, nextForkHash[:]...)
+
+	// update validators every day
+	if p.chainConfig.IsFusion(header.Number) && header.Time%86400 < 3 {
+		if err := p.updateValidatorSet(header.ParentHash); err != nil {
+			return err
+		}
+	}
 
 	if err := p.prepareValidators(header); err != nil {
 		return err

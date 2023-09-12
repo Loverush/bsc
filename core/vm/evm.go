@@ -51,6 +51,8 @@ type (
 func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 	var precompiles map[common.Address]PrecompiledContract
 	switch {
+	case evm.chainRules.IsFusion:
+		precompiles = PrecompiledContractsFusion
 	case evm.chainRules.IsHertz:
 		precompiles = PrecompiledContractsHertz
 	case evm.chainRules.IsPlato:

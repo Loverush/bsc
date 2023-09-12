@@ -20,19 +20,25 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
 	"math/big"
 
 	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
 	"golang.org/x/crypto/ripemd160"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/blake2b"
 	"github.com/ethereum/go-ethereum/crypto/bls12381"
 	"github.com/ethereum/go-ethereum/crypto/bn256"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rlp"
+	"golang.org/x/crypto/sha3"
 )
 
 // PrecompiledContract is the basic interface for native Go contracts. The implementation
@@ -198,6 +204,26 @@ var PrecompiledContractsHertz = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{103}): &cometBFTLightBlockValidateHertz{},
 }
 
+// PrecompiledContractsFusion contains the default set of pre-compiled Ethereum
+// contracts used in the fusion release.
+var PrecompiledContractsFusion = map[common.Address]PrecompiledContract{
+	common.BytesToAddress([]byte{1}): &ecrecover{},
+	common.BytesToAddress([]byte{2}): &sha256hash{},
+	common.BytesToAddress([]byte{3}): &ripemd160hash{},
+	common.BytesToAddress([]byte{4}): &dataCopy{},
+	common.BytesToAddress([]byte{5}): &bigModExp{},
+	common.BytesToAddress([]byte{6}): &bn256AddIstanbul{},
+	common.BytesToAddress([]byte{7}): &bn256ScalarMulIstanbul{},
+	common.BytesToAddress([]byte{8}): &bn256PairingIstanbul{},
+	common.BytesToAddress([]byte{9}): &blake2F{},
+
+	common.BytesToAddress([]byte{100}): &tmHeaderValidate{},
+	common.BytesToAddress([]byte{101}): &iavlMerkleProofValidatePlato{},
+	common.BytesToAddress([]byte{102}): &blsSignatureVerify{},
+	common.BytesToAddress([]byte{103}): &cometBFTLightBlockValidate{},
+	common.BytesToAddress([]byte{104}): &verifyHeader{},
+}
+
 // PrecompiledContractsBLS contains the set of pre-compiled Ethereum
 // contracts specified in EIP-2537. These are exported for testing purposes.
 var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
@@ -223,6 +249,7 @@ var (
 	PrecompiledAddressesIstanbul  []common.Address
 	PrecompiledAddressesByzantium []common.Address
 	PrecompiledAddressesHomestead []common.Address
+	PrecompiledAddressesFusion    []common.Address
 )
 
 func init() {
@@ -255,6 +282,9 @@ func init() {
 	}
 	for k := range PrecompiledContractsHertz {
 		PrecompiledAddressesHertz = append(PrecompiledAddressesHertz, k)
+	}
+	for k := range PrecompiledContractsFusion {
+		PrecompiledAddressesFusion = append(PrecompiledAddressesFusion, k)
 	}
 }
 
@@ -1257,4 +1287,151 @@ func (c *blsSignatureVerify) Run(input []byte) ([]byte, error) {
 	}
 
 	return big1.Bytes(), nil
+}
+
+// verifyHeader implements bsc header verification precompile.
+type verifyHeader struct{}
+
+// RequiredGas returns the gas required to execute the pre-compiled contract.
+func (c *verifyHeader) RequiredGas(input []byte) uint64 {
+	msgAndSigLength := msgHashLength + signatureLength
+	inputLen := uint64(len(input))
+	if inputLen <= msgAndSigLength ||
+		(inputLen-msgAndSigLength)%singleBlsPubkeyLength != 0 {
+		return params.BlsSignatureVerifyBaseGas
+	}
+	pubKeyNumber := (inputLen - msgAndSigLength) / singleBlsPubkeyLength
+	return params.BlsSignatureVerifyBaseGas + pubKeyNumber*params.BlsSignatureVerifyPerKeyGas
+}
+
+var (
+	bscHeaderType, _ = abi.NewType("tuple", "", []abi.ArgumentMarshaling{
+		{Name: "ParentHash", Type: "bytes32"},
+		{Name: "UncleHash", Type: "bytes32"},
+		{Name: "Coinbase", Type: "address"},
+		{Name: "Root", Type: "bytes32"},
+		{Name: "TxHash", Type: "bytes32"},
+		{Name: "ReceiptHash", Type: "bytes32"},
+		{Name: "Bloom", Type: "bytes"},
+		{Name: "Difficulty", Type: "uint64"},
+		{Name: "Number", Type: "uint64"},
+		{Name: "GasLimit", Type: "uint64"},
+		{Name: "GasUsed", Type: "uint64"},
+		{Name: "Time", Type: "uint64"},
+		{Name: "Extra", Type: "bytes"},
+		{Name: "MixDigest", Type: "bytes32"},
+		{Name: "Nonce", Type: "bytes8"},
+	})
+
+	bscHeaderArgs = abi.Arguments{
+		{Type: bscHeaderType},
+	}
+
+	extraSeal = 65
+)
+
+type BscHeaderStruct struct {
+	ParentHash  [32]byte
+	UncleHash   [32]byte
+	Coinbase    common.Address
+	Root        [32]byte
+	TxHash      [32]byte
+	ReceiptHash [32]byte
+	Bloom       []byte
+	Difficulty  uint64
+	Number      uint64
+	GasLimit    uint64
+	GasUsed     uint64
+	Time        uint64
+	Extra       []byte
+	MixDigest   [32]byte
+	Nonce       [8]byte
+}
+
+func (c *verifyHeader) Run(input []byte) ([]byte, error) {
+	if len(input) < 32 {
+		log.Debug("verifyHeader wrong input size", "inputLen", len(input))
+		return nil, ErrExecutionReverted
+	}
+
+	// get chainId
+	chainId := new(big.Int).SetBytes(input[:32])
+
+	// get header
+	bscHeaderBz := getData(input, 32, uint64(len(input)-32))
+	unpacked, err := bscHeaderArgs.Unpack(bscHeaderBz)
+	if err != nil {
+		log.Debug("verifyHeader invalid header", "err", err)
+		return nil, ErrExecutionReverted
+	}
+	unpackedStruct := abi.ConvertType(unpacked[0], BscHeaderStruct{})
+	bscHeader, ok := unpackedStruct.(BscHeaderStruct)
+	if !ok {
+		log.Debug("verifyHeader invalid header", "err", err)
+		return nil, ErrExecutionReverted
+	}
+
+	// get signature
+	if len(bscHeader.Extra) < extraSeal {
+		log.Debug("verifyHeader invalid header extra", "err", err)
+		return nil, ErrExecutionReverted
+	}
+	signature := bscHeader.Extra[len(bscHeader.Extra)-extraSeal:]
+
+	// verify signature
+	signHash, err := sealHash(&bscHeader, chainId)
+	if err != nil {
+		log.Debug("verifyHeader seal hash failed", "err", err)
+		return nil, ErrExecutionReverted
+	}
+	pubKey, err := secp256k1.RecoverPubkey(signHash.Bytes(), signature)
+	if err != nil {
+		log.Debug("verifyHeader recover pubkey failed", "err", err)
+		return nil, ErrExecutionReverted
+	}
+
+	return crypto.Keccak256(pubKey[1:])[12:], nil
+}
+
+func sealHash(header *BscHeaderStruct, chainID *big.Int) (common.Hash, error) {
+	var hash common.Hash
+	hasher := sha3.NewLegacyKeccak256()
+	if err := encodeSigHeader(hasher, header, chainID); err != nil {
+		return hash, err
+	}
+	hasher.Sum(hash[:0])
+	return hash, nil
+}
+
+func encodeSigHeader(w io.Writer, header *BscHeaderStruct, chainId *big.Int) error {
+	var err error
+	content := make([]interface{}, 0, 16)
+
+	if chainId != nil {
+		content = append(content, chainId)
+	}
+	content = append(content, []interface{}{
+		header.ParentHash,
+		header.UncleHash,
+		header.Coinbase,
+		header.Root,
+		header.TxHash,
+		header.ReceiptHash,
+		header.Bloom,
+		big.NewInt(int64(header.Difficulty)),
+		big.NewInt(int64(header.Number)),
+		header.GasLimit,
+		header.GasUsed,
+		header.Time,
+		header.Extra[:len(header.Extra)-extraSeal], // this will panic if extra is too short, should check before calling encodeSigHeader
+		header.MixDigest,
+		header.Nonce,
+	}...)
+	err = rlp.Encode(w, content)
+
+	if err != nil {
+		return fmt.Errorf("rlp encode failed: %v", err)
+	}
+
+	return nil
 }
