@@ -17,19 +17,20 @@
 package vm
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"math/big"
+	"time"
 
 	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
 	"golang.org/x/crypto/ripemd160"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/blake2b"
 	"github.com/ethereum/go-ethereum/crypto/bls12381"
@@ -183,6 +184,7 @@ var PrecompiledContractsPlato = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{101}): &iavlMerkleProofValidatePlato{},
 	common.BytesToAddress([]byte{102}): &blsSignatureVerify{},
 	common.BytesToAddress([]byte{103}): &cometBFTLightBlockValidate{},
+	common.BytesToAddress([]byte{104}): &verifyDoubleSignEvidence{},
 }
 
 // PrecompiledContractsHertz contains the default set of pre-compiled Ethereum
@@ -221,7 +223,7 @@ var PrecompiledContractsFusion = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{101}): &iavlMerkleProofValidatePlato{},
 	common.BytesToAddress([]byte{102}): &blsSignatureVerify{},
 	common.BytesToAddress([]byte{103}): &cometBFTLightBlockValidate{},
-	common.BytesToAddress([]byte{104}): &verifyHeader{},
+	common.BytesToAddress([]byte{104}): &verifyDoubleSignEvidence{},
 }
 
 // PrecompiledContractsBLS contains the set of pre-compiled Ethereum
@@ -1289,128 +1291,113 @@ func (c *blsSignatureVerify) Run(input []byte) ([]byte, error) {
 	return big1.Bytes(), nil
 }
 
-// verifyHeader implements bsc header verification precompile.
-type verifyHeader struct{}
+// verifyDoubleSignEvidence implements bsc header verification precompile.
+type verifyDoubleSignEvidence struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
-func (c *verifyHeader) RequiredGas(input []byte) uint64 {
-	msgAndSigLength := msgHashLength + signatureLength
-	inputLen := uint64(len(input))
-	if inputLen <= msgAndSigLength ||
-		(inputLen-msgAndSigLength)%singleBlsPubkeyLength != 0 {
-		return params.BlsSignatureVerifyBaseGas
-	}
-	pubKeyNumber := (inputLen - msgAndSigLength) / singleBlsPubkeyLength
-	return params.BlsSignatureVerifyBaseGas + pubKeyNumber*params.BlsSignatureVerifyPerKeyGas
+func (c *verifyDoubleSignEvidence) RequiredGas(input []byte) uint64 {
+	return params.DoubleSignEvidenceVerifyGas
 }
 
 var (
-	bscHeaderType, _ = abi.NewType("tuple", "", []abi.ArgumentMarshaling{
-		{Name: "ParentHash", Type: "bytes32"},
-		{Name: "UncleHash", Type: "bytes32"},
-		{Name: "Coinbase", Type: "address"},
-		{Name: "Root", Type: "bytes32"},
-		{Name: "TxHash", Type: "bytes32"},
-		{Name: "ReceiptHash", Type: "bytes32"},
-		{Name: "Bloom", Type: "bytes"},
-		{Name: "Difficulty", Type: "uint64"},
-		{Name: "Number", Type: "uint64"},
-		{Name: "GasLimit", Type: "uint64"},
-		{Name: "GasUsed", Type: "uint64"},
-		{Name: "Time", Type: "uint64"},
-		{Name: "Extra", Type: "bytes"},
-		{Name: "MixDigest", Type: "bytes32"},
-		{Name: "Nonce", Type: "bytes8"},
-	})
-
-	bscHeaderArgs = abi.Arguments{
-		{Type: bscHeaderType},
-	}
-
-	extraSeal = 65
+	extraSeal       = 65
+	maxEvidenceTime = int64(3600 * 24 * 21) // 21 days
 )
 
-type BscHeaderStruct struct {
-	ParentHash  [32]byte
-	UncleHash   [32]byte
-	Coinbase    common.Address
-	Root        [32]byte
-	TxHash      [32]byte
-	ReceiptHash [32]byte
-	Bloom       []byte
-	Difficulty  uint64
-	Number      uint64
-	GasLimit    uint64
-	GasUsed     uint64
-	Time        uint64
-	Extra       []byte
-	MixDigest   [32]byte
-	Nonce       [8]byte
+type DoubleSignEvidence struct {
+	ChainId      *big.Int
+	HeaderBytes1 []byte
+	HeaderBytes2 []byte
 }
 
-func (c *verifyHeader) Run(input []byte) ([]byte, error) {
-	if len(input) < 32 {
-		log.Debug("verifyHeader wrong input size", "inputLen", len(input))
-		return nil, ErrExecutionReverted
-	}
-
-	// get chainId
-	chainId := new(big.Int).SetBytes(input[:32])
-
-	// get header
-	bscHeaderBz := getData(input, 32, uint64(len(input)-32))
-	unpacked, err := bscHeaderArgs.Unpack(bscHeaderBz)
+func (c *verifyDoubleSignEvidence) Run(input []byte) ([]byte, error) {
+	evidence := &DoubleSignEvidence{}
+	err := rlp.DecodeBytes(input, evidence)
 	if err != nil {
-		log.Debug("verifyHeader invalid header", "err", err)
-		return nil, ErrExecutionReverted
-	}
-	unpackedStruct := abi.ConvertType(unpacked[0], BscHeaderStruct{})
-	bscHeader, ok := unpackedStruct.(BscHeaderStruct)
-	if !ok {
-		log.Debug("verifyHeader invalid header", "err", err)
+		log.Debug("rlp decode evidence failed", "err", err)
 		return nil, ErrExecutionReverted
 	}
 
-	// get signature
-	if len(bscHeader.Extra) < extraSeal {
-		log.Debug("verifyHeader invalid header extra", "err", err)
-		return nil, ErrExecutionReverted
-	}
-	signature := bscHeader.Extra[len(bscHeader.Extra)-extraSeal:]
-
-	// verify signature
-	signHash, err := sealHash(&bscHeader, chainId)
+	header1 := &types.Header{}
+	err = rlp.DecodeBytes(evidence.HeaderBytes1, header1)
 	if err != nil {
-		log.Debug("verifyHeader seal hash failed", "err", err)
-		return nil, ErrExecutionReverted
-	}
-	pubKey, err := secp256k1.RecoverPubkey(signHash.Bytes(), signature)
-	if err != nil {
-		log.Debug("verifyHeader recover pubkey failed", "err", err)
+		log.Debug("rlp decode header1 failed", "err", err)
 		return nil, ErrExecutionReverted
 	}
 
-	return crypto.Keccak256(pubKey[1:])[12:], nil
+	header2 := &types.Header{}
+	err = rlp.DecodeBytes(evidence.HeaderBytes2, header2)
+	if err != nil {
+		log.Debug("rlp decode header2 failed", "err", err)
+		return nil, ErrExecutionReverted
+	}
+
+	// basic check
+	if header1.Number.Uint64() != header2.Number.Uint64() {
+		log.Debug("header1 and header2 number not equal")
+		return nil, ErrExecutionReverted
+	}
+	if header1.ParentHash != header2.ParentHash {
+		log.Debug("header1 and header2 parent hash not equal")
+		return nil, ErrExecutionReverted
+	}
+
+	if len(header1.Extra) < extraSeal || len(header2.Extra) < extraSeal {
+		log.Debug("header1 or header2 extra length not enough")
+		return nil, ErrExecutionReverted
+	}
+	sig1 := header1.Extra[len(header1.Extra)-extraSeal:]
+	sig2 := header2.Extra[len(header2.Extra)-extraSeal:]
+	if bytes.Equal(sig1, sig2) {
+		log.Debug("header1 and header2 sig equal")
+		return nil, ErrExecutionReverted
+	}
+	evidenceTime := header1.Time
+	if evidenceTime < header2.Time {
+		evidenceTime = header2.Time
+	}
+	if time.Now().Unix()-int64(evidenceTime) > maxEvidenceTime {
+		log.Debug("evidence time too old")
+		return nil, ErrExecutionReverted
+	}
+
+	// check sig
+	msgHash1 := sealHash(header1, evidence.ChainId)
+	msgHash2 := sealHash(header2, evidence.ChainId)
+	pubkey1, err := secp256k1.RecoverPubkey(msgHash1.Bytes(), sig1)
+	if err != nil {
+		log.Debug("recover pubkey1 failed", "err", err)
+		return nil, ErrExecutionReverted
+	}
+	pubkey2, err := secp256k1.RecoverPubkey(msgHash2.Bytes(), sig2)
+	if err != nil {
+		log.Debug("recover pubkey2 failed", "err", err)
+		return nil, ErrExecutionReverted
+	}
+	if !bytes.Equal(pubkey1, pubkey2) {
+		log.Debug("pubkey1 and pubkey2 not equal")
+		return nil, ErrExecutionReverted
+	}
+
+	returnBz := make([]byte, 52) // 20 + 32
+	signerAddr := crypto.Keccak256(pubkey1[1:])[12:]
+	heightBz := header1.Number.Bytes()
+	copy(returnBz[:20], signerAddr)
+	copy(returnBz[52-len(heightBz):], heightBz)
+
+	return returnBz, nil
 }
 
-func sealHash(header *BscHeaderStruct, chainID *big.Int) (common.Hash, error) {
-	var hash common.Hash
+func sealHash(header *types.Header, chainId *big.Int) (hash common.Hash) {
 	hasher := sha3.NewLegacyKeccak256()
-	if err := encodeSigHeader(hasher, header, chainID); err != nil {
-		return hash, err
-	}
+	encodeSigHeader(hasher, header, chainId)
 	hasher.Sum(hash[:0])
-	return hash, nil
+	return hash
 }
 
-func encodeSigHeader(w io.Writer, header *BscHeaderStruct, chainId *big.Int) error {
-	var err error
-	content := make([]interface{}, 0, 16)
-
-	if chainId != nil {
-		content = append(content, chainId)
-	}
-	content = append(content, []interface{}{
+func encodeSigHeader(w io.Writer, header *types.Header, chainId *big.Int) {
+	err := rlp.Encode(w, []interface{}{
+		chainId,
 		header.ParentHash,
 		header.UncleHash,
 		header.Coinbase,
@@ -1418,20 +1405,16 @@ func encodeSigHeader(w io.Writer, header *BscHeaderStruct, chainId *big.Int) err
 		header.TxHash,
 		header.ReceiptHash,
 		header.Bloom,
-		big.NewInt(int64(header.Difficulty)),
-		big.NewInt(int64(header.Number)),
+		header.Difficulty,
+		header.Number,
 		header.GasLimit,
 		header.GasUsed,
 		header.Time,
 		header.Extra[:len(header.Extra)-extraSeal], // this will panic if extra is too short, should check before calling encodeSigHeader
 		header.MixDigest,
 		header.Nonce,
-	}...)
-	err = rlp.Encode(w, content)
-
+	})
 	if err != nil {
-		return fmt.Errorf("rlp encode failed: %v", err)
+		panic("can't encode: " + err.Error())
 	}
-
-	return nil
 }

@@ -158,8 +158,10 @@ var (
 
 // SignerFn is a signer callback function to request a header to be signed by a
 // backing account.
-type SignerFn func(accounts.Account, string, []byte) ([]byte, error)
-type SignerTxFn func(accounts.Account, *types.Transaction, *big.Int) (*types.Transaction, error)
+type (
+	SignerFn   func(accounts.Account, string, []byte) ([]byte, error)
+	SignerTxFn func(accounts.Account, *types.Transaction, *big.Int) (*types.Transaction, error)
+)
 
 func isToSystemContract(to common.Address) bool {
 	return systemContracts[to]
@@ -221,12 +223,11 @@ type Parlia struct {
 
 	lock sync.RWMutex // Protects the signer fields
 
-	ethAPI                      *ethapi.PublicBlockChainAPI
-	VotePool                    consensus.VotePool
-	validatorSetABIBeforeLuban  abi.ABI
-	validatorSetABIBeforeFusion abi.ABI
-	validatorSetABI             abi.ABI
-	slashABI                    abi.ABI
+	ethAPI                     *ethapi.PublicBlockChainAPI
+	VotePool                   consensus.VotePool
+	validatorSetABIBeforeLuban abi.ABI
+	validatorSetABI            abi.ABI
+	slashABI                   abi.ABI
 
 	// The fields below are for testing only
 	fakeDiff bool // Skip difficulty verifications
@@ -260,10 +261,6 @@ func New(
 	if err != nil {
 		panic(err)
 	}
-	vABIBeforeFusion, err := abi.JSON(strings.NewReader(validatorSetABIBeforeFusion))
-	if err != nil {
-		panic(err)
-	}
 	vABI, err := abi.JSON(strings.NewReader(validatorSetABI))
 	if err != nil {
 		panic(err)
@@ -273,18 +270,17 @@ func New(
 		panic(err)
 	}
 	c := &Parlia{
-		chainConfig:                 chainConfig,
-		config:                      parliaConfig,
-		genesisHash:                 genesisHash,
-		db:                          db,
-		ethAPI:                      ethAPI,
-		recentSnaps:                 recentSnaps,
-		signatures:                  signatures,
-		validatorSetABIBeforeLuban:  vABIBeforeLuban,
-		validatorSetABIBeforeFusion: vABIBeforeFusion,
-		validatorSetABI:             vABI,
-		slashABI:                    sABI,
-		signer:                      types.LatestSigner(chainConfig),
+		chainConfig:                chainConfig,
+		config:                     parliaConfig,
+		genesisHash:                genesisHash,
+		db:                         db,
+		ethAPI:                     ethAPI,
+		recentSnaps:                recentSnaps,
+		signatures:                 signatures,
+		validatorSetABIBeforeLuban: vABIBeforeLuban,
+		validatorSetABI:            vABI,
+		slashABI:                   sABI,
+		signer:                     types.LatestSigner(chainConfig),
 	}
 
 	return c
@@ -933,13 +929,6 @@ func (p *Parlia) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 	nextForkHash := forkid.NextForkHash(p.chainConfig, p.genesisHash, number)
 	header.Extra = append(header.Extra, nextForkHash[:]...)
 
-	// update validators every day
-	if p.chainConfig.IsFusion(header.Number) && header.Time%86400 < 3 {
-		if err := p.updateValidatorSet(header.ParentHash); err != nil {
-			return err
-		}
-	}
-
 	if err := p.prepareValidators(header); err != nil {
 		return err
 	}
@@ -998,7 +987,8 @@ func (p *Parlia) verifyValidators(header *types.Header) error {
 
 func (p *Parlia) distributeFinalityReward(chain consensus.ChainHeaderReader, state *state.StateDB, header *types.Header,
 	cx core.ChainContext, txs *[]*types.Transaction, receipts *[]*types.Receipt, systemTxs *[]*types.Transaction,
-	usedGas *uint64, mining bool) error {
+	usedGas *uint64, mining bool,
+) error {
 	currentHeight := header.Number.Uint64()
 	epoch := p.config.Epoch
 	chainConfig := chain.Config()
@@ -1073,7 +1063,8 @@ func (p *Parlia) distributeFinalityReward(chain consensus.ChainHeaderReader, sta
 // Finalize implements consensus.Engine, ensuring no uncles are set, nor block
 // rewards given.
 func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs *[]*types.Transaction,
-	uncles []*types.Header, receipts *[]*types.Receipt, systemTxs *[]*types.Transaction, usedGas *uint64) error {
+	uncles []*types.Header, receipts *[]*types.Receipt, systemTxs *[]*types.Transaction, usedGas *uint64,
+) error {
 	// warn if not in majority fork
 	number := header.Number.Uint64()
 	snap, err := p.snapshot(chain, number-1, header.ParentHash, nil)
@@ -1133,6 +1124,20 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 			return err
 		}
 	}
+
+	// update validators every day
+	if p.chainConfig.IsFusion(header.Number) {
+		parent := chain.GetHeaderByHash(header.ParentHash)
+		if parent == nil {
+			return errors.New("parent not found")
+		}
+		if time.Unix(int64(parent.Time), 0).Day() == time.Unix(int64(header.Time), 0).Day()-1 {
+			if err := p.updateValidatorSet(state, header, cx, txs, receipts, systemTxs, usedGas, false); err != nil {
+				return err
+			}
+		}
+	}
+
 	if len(*systemTxs) > 0 {
 		return errors.New("the length of systemTxs do not match")
 	}
@@ -1142,7 +1147,8 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 // FinalizeAndAssemble implements consensus.Engine, ensuring no uncles are set,
 // nor block rewards given, and returns the final block.
 func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB,
-	txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, []*types.Receipt, error) {
+	txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt,
+) (*types.Block, []*types.Receipt, error) {
 	// No block rewards in PoA, so the state remains as is and uncles are dropped
 	cx := chainContext{Chain: chain, parlia: p}
 	if txs == nil {
@@ -1192,6 +1198,19 @@ func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 	if p.chainConfig.IsPlato(header.Number) {
 		if err := p.distributeFinalityReward(chain, state, header, cx, &txs, &receipts, nil, &header.GasUsed, true); err != nil {
 			return nil, nil, err
+		}
+	}
+
+	// update validators every day
+	if p.chainConfig.IsFusion(header.Number) {
+		parent := chain.GetHeaderByHash(header.ParentHash)
+		if parent == nil {
+			return nil, nil, errors.New("parent not found")
+		}
+		if time.Unix(int64(parent.Time), 0).Day() == time.Unix(int64(header.Time), 0).Day()-1 {
+			if err := p.updateValidatorSet(state, header, cx, &txs, &receipts, nil, &header.GasUsed, true); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
 
@@ -1553,7 +1572,8 @@ func (p *Parlia) getCurrentValidators(blockHash common.Hash, blockNum *big.Int) 
 
 // slash spoiled validators
 func (p *Parlia) distributeIncoming(val common.Address, state *state.StateDB, header *types.Header, chain core.ChainContext,
-	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool) error {
+	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool,
+) error {
 	coinbase := header.Coinbase
 	balance := state.GetBalance(consensus.SystemAddress)
 	if balance.Cmp(common.Big0) <= 0 {
@@ -1564,7 +1584,7 @@ func (p *Parlia) distributeIncoming(val common.Address, state *state.StateDB, he
 
 	doDistributeSysReward := state.GetBalance(common.HexToAddress(systemcontracts.SystemRewardContract)).Cmp(maxSystemBalance) < 0
 	if doDistributeSysReward {
-		var rewards = new(big.Int)
+		rewards := new(big.Int)
 		rewards = rewards.Rsh(balance, systemRewardPercent)
 		if rewards.Cmp(common.Big0) > 0 {
 			err := p.distributeToSystem(rewards, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
@@ -1581,7 +1601,8 @@ func (p *Parlia) distributeIncoming(val common.Address, state *state.StateDB, he
 
 // slash spoiled validators
 func (p *Parlia) slash(spoiledVal common.Address, state *state.StateDB, header *types.Header, chain core.ChainContext,
-	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool) error {
+	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool,
+) error {
 	// method
 	method := "slash"
 
@@ -1601,7 +1622,8 @@ func (p *Parlia) slash(spoiledVal common.Address, state *state.StateDB, header *
 
 // init contract
 func (p *Parlia) initContract(state *state.StateDB, header *types.Header, chain core.ChainContext,
-	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool) error {
+	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool,
+) error {
 	// method
 	method := "init"
 	// contracts
@@ -1633,7 +1655,8 @@ func (p *Parlia) initContract(state *state.StateDB, header *types.Header, chain 
 }
 
 func (p *Parlia) distributeToSystem(amount *big.Int, state *state.StateDB, header *types.Header, chain core.ChainContext,
-	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool) error {
+	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool,
+) error {
 	// get system message
 	msg := p.getSystemMessage(header.Coinbase, common.HexToAddress(systemcontracts.SystemRewardContract), nil, amount)
 	// apply message
@@ -1643,7 +1666,8 @@ func (p *Parlia) distributeToSystem(amount *big.Int, state *state.StateDB, heade
 // slash spoiled validators
 func (p *Parlia) distributeToValidator(amount *big.Int, validator common.Address,
 	state *state.StateDB, header *types.Header, chain core.ChainContext,
-	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool) error {
+	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool,
+) error {
 	// method
 	method := "deposit"
 
