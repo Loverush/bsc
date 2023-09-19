@@ -21,7 +21,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
-	"io"
 	"math/big"
 	"time"
 
@@ -39,7 +38,6 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
-	"golang.org/x/crypto/sha3"
 )
 
 // PrecompiledContract is the basic interface for native Go contracts. The implementation
@@ -1362,8 +1360,8 @@ func (c *verifyDoubleSignEvidence) Run(input []byte) ([]byte, error) {
 	}
 
 	// check sig
-	msgHash1 := sealHash(header1, evidence.ChainId)
-	msgHash2 := sealHash(header2, evidence.ChainId)
+	msgHash1 := types.SealHash(header1, evidence.ChainId)
+	msgHash2 := types.SealHash(header2, evidence.ChainId)
 	pubkey1, err := secp256k1.RecoverPubkey(msgHash1.Bytes(), sig1)
 	if err != nil {
 		log.Debug("recover pubkey1 failed", "err", err)
@@ -1386,35 +1384,4 @@ func (c *verifyDoubleSignEvidence) Run(input []byte) ([]byte, error) {
 	copy(returnBz[52-len(heightBz):], heightBz)
 
 	return returnBz, nil
-}
-
-func sealHash(header *types.Header, chainId *big.Int) (hash common.Hash) {
-	hasher := sha3.NewLegacyKeccak256()
-	encodeSigHeader(hasher, header, chainId)
-	hasher.Sum(hash[:0])
-	return hash
-}
-
-func encodeSigHeader(w io.Writer, header *types.Header, chainId *big.Int) {
-	err := rlp.Encode(w, []interface{}{
-		chainId,
-		header.ParentHash,
-		header.UncleHash,
-		header.Coinbase,
-		header.Root,
-		header.TxHash,
-		header.ReceiptHash,
-		header.Bloom,
-		header.Difficulty,
-		header.Number,
-		header.GasLimit,
-		header.GasUsed,
-		header.Time,
-		header.Extra[:len(header.Extra)-extraSeal], // this will panic if extra is too short, should check before calling encodeSigHeader
-		header.MixDigest,
-		header.Nonce,
-	})
-	if err != nil {
-		panic("can't encode: " + err.Error())
-	}
 }
