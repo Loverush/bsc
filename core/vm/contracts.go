@@ -22,8 +22,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"math/big"
-	"time"
-
 	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
 	"golang.org/x/crypto/ripemd160"
 
@@ -1297,8 +1295,7 @@ func (c *verifyDoubleSignEvidence) RequiredGas(input []byte) uint64 {
 }
 
 var (
-	extraSeal       = 65
-	maxEvidenceTime = int64(3600 * 24 * 21) // 21 days
+	extraSeal = 65
 )
 
 type DoubleSignEvidence struct {
@@ -1307,6 +1304,10 @@ type DoubleSignEvidence struct {
 	HeaderBytes2 []byte
 }
 
+// Run input: rlp encoded DoubleSignEvidence
+// return:
+// signer address| height   | evidence time
+// 20 bytes      | 32 bytes | 32 bytes     |
 func (c *verifyDoubleSignEvidence) Run(input []byte) ([]byte, error) {
 	evidence := &DoubleSignEvidence{}
 	err := rlp.DecodeBytes(input, evidence)
@@ -1353,10 +1354,6 @@ func (c *verifyDoubleSignEvidence) Run(input []byte) ([]byte, error) {
 	if evidenceTime < header2.Time {
 		evidenceTime = header2.Time
 	}
-	if time.Now().Unix()-int64(evidenceTime) > maxEvidenceTime {
-		log.Debug("evidence time too old")
-		return nil, ErrExecutionReverted
-	}
 
 	// check sig
 	msgHash1 := types.SealHash(header1, evidence.ChainId)
@@ -1376,11 +1373,13 @@ func (c *verifyDoubleSignEvidence) Run(input []byte) ([]byte, error) {
 		return nil, ErrExecutionReverted
 	}
 
-	returnBz := make([]byte, 52) // 20 + 32
+	returnBz := make([]byte, 84) // 20 + 32 + 32
 	signerAddr := crypto.Keccak256(pubkey1[1:])[12:]
 	heightBz := header1.Number.Bytes()
+	evidenceTimeBz := big.NewInt(int64(evidenceTime)).Bytes()
 	copy(returnBz[:20], signerAddr)
 	copy(returnBz[52-len(heightBz):], heightBz)
+	copy(returnBz[84-len(evidenceTimeBz):], evidenceTimeBz)
 
 	return returnBz, nil
 }
