@@ -22,6 +22,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"math/big"
+
 	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
 	"golang.org/x/crypto/ripemd160"
 
@@ -219,6 +220,7 @@ var PrecompiledContractsFusion = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{102}): &blsSignatureVerify{},
 	common.BytesToAddress([]byte{103}): &cometBFTLightBlockValidate{},
 	common.BytesToAddress([]byte{104}): &verifyDoubleSignEvidence{},
+	common.BytesToAddress([]byte{105}): &tmSignatureRecover{},
 }
 
 // PrecompiledContractsBLS contains the set of pre-compiled Ethereum
