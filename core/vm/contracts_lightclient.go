@@ -1,14 +1,18 @@
 package vm
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"net/url"
 	"strings"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	ecdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/tendermint/iavl"
 	"github.com/tendermint/tendermint/crypto/merkle"
 	cmn "github.com/tendermint/tendermint/libs/common"
+	"golang.org/x/crypto/ripemd160" //nolint:staticcheck
 
 	v1 "github.com/ethereum/go-ethereum/core/vm/lightclient/v1"
 	v2 "github.com/ethereum/go-ethereum/core/vm/lightclient/v2"
@@ -104,7 +108,7 @@ func (c *tmHeaderValidate) Run(input []byte) (result []byte, err error) {
 	return result, nil
 }
 
-//------------------------------------------------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // iavlMerkleProofValidate implemented as a native contract.
 type iavlMerkleProofValidate struct {
@@ -396,4 +400,73 @@ type cometBFTLightBlockValidateHertz struct {
 
 func (c *cometBFTLightBlockValidateHertz) Run(input []byte) (result []byte, err error) {
 	return c.run(input, true)
+}
+
+// tmSignatureRecover implemented as a native contract.
+type tmSignatureRecover struct{}
+
+func (c *tmSignatureRecover) RequiredGas(input []byte) uint64 {
+	return params.EcrecoverGas
+}
+
+const (
+	tmPubKeyLength       uint8 = 33
+	tmSignatureLength    uint8 = 64
+	tmSignatureMsgLength uint8 = 32
+)
+
+func (c *tmSignatureRecover) Run(input []byte) (result []byte, err error) {
+	if len(input) != int(tmPubKeyLength)+int(tmSignatureLength)+int(tmSignatureMsgLength) {
+		return nil, fmt.Errorf("invalid input")
+	}
+
+	return c.runTMSecp256k1Signature(
+		input[:tmPubKeyLength],
+		input[tmPubKeyLength:tmPubKeyLength+tmSignatureLength],
+		input[tmPubKeyLength+tmSignatureLength:],
+	)
+}
+
+func (c *tmSignatureRecover) runTMSecp256k1Signature(pubkey, signatureStr, msgHash []byte) (result []byte, err error) {
+	pubKey, err := btcec.ParsePubKey(pubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	r, s, err := c.signatureFromBytes(signatureStr)
+	if err != nil {
+		return nil, err
+	}
+	signature := ecdsa.NewSignature(r, s)
+
+	// Reject malleable signatures. libsecp256k1 does this check but btcec doesn't.
+	if s.IsOverHalfOrder() {
+		return nil, fmt.Errorf("invalid signature")
+	}
+
+	// Verify the signature.
+	if !signature.Verify(msgHash, pubKey) {
+		return nil, fmt.Errorf("invalid signature")
+	}
+
+	hasherSHA256 := sha256.New()
+	_, _ = hasherSHA256.Write(pubKey.SerializeCompressed()) // does not error
+	sha := hasherSHA256.Sum(nil)
+
+	hasherRIPEMD160 := ripemd160.New()
+	_, _ = hasherRIPEMD160.Write(sha) // does not error
+	return hasherRIPEMD160.Sum(nil), nil
+}
+
+// Read Signature struct from R || S. Caller needs to ensure
+// that len(sigStr) == 64.
+func (c *tmSignatureRecover) signatureFromBytes(sigStr []byte) (*btcec.ModNScalar, *btcec.ModNScalar, error) {
+	var r, s btcec.ModNScalar
+	if r.SetByteSlice(sigStr[:32]) {
+		return nil, nil, fmt.Errorf("invalid R field")
+	}
+	if s.SetByteSlice(sigStr[32:]) {
+		return nil, nil, fmt.Errorf("invalid S field")
+	}
+	return &r, &s, nil
 }

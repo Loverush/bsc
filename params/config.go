@@ -169,6 +169,9 @@ var (
 		LondonBlock: big.NewInt(31302048),
 		HertzBlock:  big.NewInt(31302048),
 
+		// TODO
+		FusionBlock: nil,
+
 		Parlia: &ParliaConfig{
 			Period: 3,
 			Epoch:  200,
@@ -205,6 +208,9 @@ var (
 		LondonBlock: big.NewInt(31103030),
 		HertzBlock:  big.NewInt(31103030),
 
+		// TODO
+		FusionBlock: nil,
+
 		Parlia: &ParliaConfig{
 			Period: 3,
 			Epoch:  200,
@@ -238,6 +244,9 @@ var (
 		BerlinBlock: nil,
 		HertzBlock:  nil,
 
+		// TODO
+		FusionBlock: nil,
+
 		Parlia: &ParliaConfig{
 			Period: 3,
 			Epoch:  200,
@@ -269,6 +278,9 @@ var (
 		BerlinBlock:         big.NewInt(0),
 		LondonBlock:         big.NewInt(0),
 		HertzBlock:          big.NewInt(0),
+
+		// TODO
+		FusionBlock: big.NewInt(0),
 
 		Parlia: &ParliaConfig{
 			Period: 3,
@@ -483,6 +495,7 @@ type ChainConfig struct {
 	LubanBlock      *big.Int `json:"lubanBlock,omitempty" toml:",omitempty"`      // lubanBlock switch block (nil = no fork, 0 = already activated)
 	PlatoBlock      *big.Int `json:"platoBlock,omitempty" toml:",omitempty"`      // platoBlock switch block (nil = no fork, 0 = already activated)
 	HertzBlock      *big.Int `json:"hertzBlock,omitempty" toml:",omitempty"`      // hertzBlock switch block (nil = no fork, 0 = already activated)
+	FusionBlock     *big.Int `json:"fusionBlock,omitempty" toml:",omitempty"`     // fusionBlock switch block (nil = no fork, 0 = already activated)
 
 	// Various consensus engines
 	Ethash    *EthashConfig `json:"ethash,omitempty" toml:",omitempty"`
@@ -540,7 +553,7 @@ func (c *ChainConfig) String() string {
 		engine = "unknown"
 	}
 
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Ramanujan: %v, Niels: %v, MirrorSync: %v, Bruno: %v, Berlin: %v, YOLO v3: %v, CatalystBlock: %v, London: %v, ArrowGlacier: %v, MergeFork:%v, Euler: %v, Gibbs: %v, Nano: %v, Moran: %v, Planck: %v,Luban: %v, Plato: %v, Hertz: %v, Engine: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Ramanujan: %v, Niels: %v, MirrorSync: %v, Bruno: %v, Berlin: %v, YOLO v3: %v, CatalystBlock: %v, London: %v, ArrowGlacier: %v, MergeFork:%v, Euler: %v, Gibbs: %v, Nano: %v, Moran: %v, Planck: %v,Luban: %v, Plato: %v, Hertz: %v, Engine: %v, Fusion: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -571,6 +584,7 @@ func (c *ChainConfig) String() string {
 		c.LubanBlock,
 		c.PlatoBlock,
 		c.HertzBlock,
+		c.FusionBlock,
 		engine,
 	)
 }
@@ -688,6 +702,16 @@ func (c *ChainConfig) IsHertz(num *big.Int) bool {
 // IsOnHertz returns whether num is equal to the fork block of enabling Berlin EIPs.
 func (c *ChainConfig) IsOnHertz(num *big.Int) bool {
 	return configBlockEqual(c.HertzBlock, num)
+}
+
+// IsFusion returns whether num is either equal to the block of enabling bc fusion or greater.
+func (c *ChainConfig) IsFusion(num *big.Int) bool {
+	return isBlockForked(c.FusionBlock, num)
+}
+
+// IsOnFusion returns whether num is equal to the fork block of enabling bc fusion.
+func (c *ChainConfig) IsOnFusion(num *big.Int) bool {
+	return configBlockEqual(c.FusionBlock, num)
 }
 
 // IsMuirGlacier returns whether num is either equal to the Muir Glacier (EIP-2384) fork block or greater.
@@ -837,6 +861,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "lubanBlock", block: c.LubanBlock},
 		{name: "platoBlock", block: c.PlatoBlock},
 		{name: "hertzBlock", block: c.HertzBlock},
+		{name: "fusionBlock", block: c.FusionBlock},
 		{name: "shanghaiTime", timestamp: c.ShanghaiTime},
 		{name: "cancunTime", timestamp: c.CancunTime, optional: true},
 		{name: "pragueTime", timestamp: c.PragueTime, optional: true},
@@ -1133,6 +1158,7 @@ type Rules struct {
 	IsHertz                                                 bool
 	IsShanghai, IsCancun, IsPrague                          bool
 	IsVerkle                                                bool
+	IsFusion                                                bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1164,5 +1190,6 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool, timestamp uint64) Rules 
 		IsCancun:         c.IsCancun(num, timestamp),
 		IsPrague:         c.IsPrague(num, timestamp),
 		IsVerkle:         c.IsVerkle(num, timestamp),
+		IsFusion:         c.IsFusion(num),
 	}
 }
