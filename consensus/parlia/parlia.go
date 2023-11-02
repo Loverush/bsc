@@ -1145,7 +1145,7 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 	}
 
 	if p.chainConfig.IsOnFusion(header.Number) {
-		err := p.initFusionContract(state, header, cx, txs, receipts, systemTxs, usedGas, false)
+		err := p.initializeFusionContract(state, header, cx, txs, receipts, systemTxs, usedGas, false)
 		if err != nil {
 			log.Error("init fusion contract failed")
 		}
@@ -1159,9 +1159,6 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 		}
 		if time.Unix(int64(parent.Time), 0).Day() == time.Unix(int64(header.Time), 0).Day()-1 {
 			if err := p.updateEligibleValidators(state, header, cx, txs, receipts, systemTxs, usedGas, false); err != nil {
-				return err
-			}
-			if err := p.updateValidatorSetV2(state, header, cx, txs, receipts, systemTxs, usedGas, false); err != nil {
 				return err
 			}
 		}
@@ -1230,7 +1227,7 @@ func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 	}
 
 	if p.chainConfig.IsOnFusion(header.Number) {
-		err := p.initFusionContract(state, header, cx, &txs, &receipts, nil, &header.GasUsed, true)
+		err := p.initializeFusionContract(state, header, cx, &txs, &receipts, nil, &header.GasUsed, true)
 		if err != nil {
 			log.Error("init fusion contract failed")
 		}
@@ -1244,9 +1241,6 @@ func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 		}
 		if time.Unix(int64(parent.Time), 0).Day() == time.Unix(int64(header.Time), 0).Day()-1 {
 			if err := p.updateEligibleValidators(state, header, cx, &txs, &receipts, nil, &header.GasUsed, true); err != nil {
-				return nil, nil, err
-			}
-			if err := p.updateValidatorSetV2(state, header, cx, &txs, &receipts, nil, &header.GasUsed, true); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -1596,19 +1590,23 @@ func (p *Parlia) getCurrentValidators(blockHash common.Hash, blockNum *big.Int) 
 
 	// after FusionBlock, there may be same validator from BC and BSC
 	// we should remove duplicated consensus address and vote address
-	// if duplicated, use the first one which has more voting power
+	// if duplicated, use the first one which has most voting power
 	for i := 0; i < len(valSet); i++ {
 		key := valSet[i]
 		value := voteAddrSet[i]
 
-		if _, ok := voteAddrMap[key]; !ok {
+		// check duplicated consensus address
+		if _, ok := voteAddrMap[key]; ok {
 			continue
 		}
+
+		// check duplicated vote address
 		if _, ok := voteAddrExist[value]; ok {
 			continue
 		}
 
 		voteAddrMap[key] = &value
+		voteAddrExist[value] = true
 	}
 	return valSet, voteAddrMap, nil
 }

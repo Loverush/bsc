@@ -3,7 +3,6 @@ package parlia
 import (
 	"container/heap"
 	"math/big"
-	"sort"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -31,8 +30,8 @@ func TestValidatorHeap(t *testing.T) {
 				100,
 			},
 			expected: []common.Address{
-				common.HexToAddress("0x2"),
 				common.HexToAddress("0x1"),
+				common.HexToAddress("0x2"),
 			},
 		},
 		{
@@ -49,8 +48,8 @@ func TestValidatorHeap(t *testing.T) {
 				100,
 			},
 			expected: []common.Address{
-				common.HexToAddress("0x2"),
 				common.HexToAddress("0x1"),
+				common.HexToAddress("0x2"),
 			},
 		},
 		{
@@ -111,46 +110,35 @@ func TestValidatorHeap(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		var h ValidatorHeap
-		if tc.k > len(tc.validators) {
-			for i := 0; i < len(tc.validators); i++ {
-				if tc.votingPowers[i] > 0 {
-					h = append(h, ValidatorItem{
-						address:     tc.validators[i],
-						votingPower: big.NewInt(int64(tc.votingPowers[i])),
-					})
-				}
+		for i := 0; i < len(tc.validators); i++ {
+			if tc.votingPowers[i] > 0 {
+				h = append(h, ValidatorItem{
+					address:     tc.validators[i],
+					votingPower: new(big.Int).Mul(big.NewInt(int64(tc.votingPowers[i])), big.NewInt(1e10)),
+				})
 			}
-			sort.SliceStable(h, h.Less)
-		} else {
-			i := 0
-			for len(h) < tc.k && i < len(tc.validators) {
-				if tc.votingPowers[i] > 0 {
-					h = append(h, ValidatorItem{
-						address:     tc.validators[i],
-						votingPower: big.NewInt(int64(tc.votingPowers[i])),
-					})
-				}
-				i++
-			}
-			hp := &h
-			heap.Init(hp)
-			for j := i; j < len(tc.validators); j++ {
-				if tc.votingPowers[i] > h[0].votingPower.Uint64() {
-					heap.Pop(hp)
-					heap.Push(hp, ValidatorItem{
-						address:     tc.validators[j],
-						votingPower: big.NewInt(int64(tc.votingPowers[i])),
-					})
-				}
-			}
+		}
+		hp := &h
+		heap.Init(hp)
+
+		length := tc.k
+		if length > len(h) {
+			length = len(h)
+		}
+		eligibleValidators := make([]common.Address, length)
+		eligibleVotingPowers := make([]uint64, length)
+		for i := 0; i < length; i++ {
+			item := heap.Pop(hp).(ValidatorItem)
+			eligibleValidators[i] = item.address
+			eligibleVotingPowers[i] = new(big.Int).Div(item.votingPower, big.NewInt(1e10)).Uint64() // to avoid overflow
 		}
 
 		// check
-		if len(h) != len(tc.expected) {
+		if len(eligibleValidators) != len(tc.expected) {
 			t.Errorf("expected %d, got %d", len(tc.expected), len(h))
 		}
 		for i := 0; i < len(tc.expected); i++ {
-			if h[i].address != tc.expected[i] {
+			if eligibleValidators[i] != tc.expected[i] {
 				t.Errorf("expected %s, got %s", tc.expected[i].Hex(), h[i].address.Hex())
 			}
 		}

@@ -699,6 +699,7 @@ func init() {
 		},
 	}
 
+	// TODO: governance contract
 	fusionUpgrade[mainNet] = &Upgrade{
 		UpgradeName: "fusion",
 		Configs: []*UpgradeConfig{
