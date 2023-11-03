@@ -80,12 +80,12 @@ func (h *ValidatorHeap) Pop() interface{} {
 	return x
 }
 
-func (p *Parlia) updateEligibleValidators(state *state.StateDB, header *types.Header, chain core.ChainContext,
+func (p *Parlia) updateEligibleValidatorSet(state *state.StateDB, header *types.Header, chain core.ChainContext,
 	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool,
 ) error {
 	// 1. get all validators and its voting power
 	blockNr := rpc.BlockNumberOrHashWithHash(header.ParentHash, false)
-	validators, votingPowers, err := p.getValidatorWithVotingPower(blockNr)
+	validators, votingPowers, voteAddrs, err := p.getValidatorElectionInfo(blockNr)
 	if err != nil {
 		return err
 	}
@@ -95,13 +95,13 @@ func (p *Parlia) updateEligibleValidators(state *state.StateDB, header *types.He
 	}
 
 	// 2. sort by voting power
-	eligibleValidators, eligibleVotingPowers := getTopValidatorsByVotingPower(validators, votingPowers, maxElectedValidators)
+	eValidators, eVotingPowers, eVoteAddrs := getTopValidatorsByVotingPower(validators, votingPowers, voteAddrs, maxElectedValidators)
 
 	// 3. update validator set to system contract
-	method := "updateEligibleValidators"
-	data, err := p.stakeHubABI.Pack(method, eligibleValidators, eligibleVotingPowers)
+	method := "updateEligibleValidatorSet"
+	data, err := p.stakeHubABI.Pack(method, eValidators, eVotingPowers, eVoteAddrs)
 	if err != nil {
-		log.Error("Unable to pack tx for updateEligibleValidators", "error", err)
+		log.Error("Unable to pack tx for updateEligibleValidatorSet", "error", err)
 		return err
 	}
 
@@ -111,7 +111,7 @@ func (p *Parlia) updateEligibleValidators(state *state.StateDB, header *types.He
 	return p.applyTransaction(msg, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
 }
 
-func (p *Parlia) getValidatorWithVotingPower(blockNr rpc.BlockNumberOrHash) (validators []common.Address, votingPowers []*big.Int, err error) {
+func (p *Parlia) getValidatorElectionInfo(blockNr rpc.BlockNumberOrHash) (validators []common.Address, votingPowers []*big.Int, voteAddrs [][]byte, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // cancel when we are finished consuming integers
 
@@ -122,7 +122,7 @@ func (p *Parlia) getValidatorWithVotingPower(blockNr rpc.BlockNumberOrHash) (val
 	data, err := p.stakeHubABI.Pack(method, big.NewInt(0), big.NewInt(0))
 	if err != nil {
 		log.Error("Unable to pack tx for getValidatorWithVotingPower", "error", err)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	msgData := (hexutil.Bytes)(data)
 
@@ -132,18 +132,18 @@ func (p *Parlia) getValidatorWithVotingPower(blockNr rpc.BlockNumberOrHash) (val
 		Data: &msgData,
 	}, blockNr, nil, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	var totalLength *big.Int
-	if err := p.stakeHubABI.UnpackIntoInterface(&[]interface{}{&validators, &votingPowers, &totalLength}, method, result); err != nil {
-		return nil, nil, err
+	if err := p.stakeHubABI.UnpackIntoInterface(&[]interface{}{&validators, &votingPowers, &voteAddrs, &totalLength}, method, result); err != nil {
+		return nil, nil, nil, err
 	}
 	if totalLength.Int64() != int64(len(validators)) {
-		return nil, nil, fmt.Errorf("validator length not match")
+		return nil, nil, nil, fmt.Errorf("validator length not match")
 	}
 
-	return validators, votingPowers, nil
+	return validators, votingPowers, voteAddrs, nil
 }
 
 func (p *Parlia) getMaxElectedValidators(blockNr rpc.BlockNumberOrHash) (maxElectedValidators *big.Int, err error) {
@@ -177,7 +177,7 @@ func (p *Parlia) getMaxElectedValidators(blockNr rpc.BlockNumberOrHash) (maxElec
 	return maxElectedValidators, nil
 }
 
-func getTopValidatorsByVotingPower(validators []common.Address, votingPowers []*big.Int, maxElectedValidators *big.Int) ([]common.Address, []uint64) {
+func getTopValidatorsByVotingPower(validators []common.Address, votingPowers []*big.Int, voteAddrs [][]byte, maxElectedValidators *big.Int) ([]common.Address, []uint64, [][]byte) {
 	var validatorHeap ValidatorHeap
 	for i := 0; i < len(validators); i++ {
 		// only keep validators with voting power > 0
@@ -195,13 +195,15 @@ func getTopValidatorsByVotingPower(validators []common.Address, votingPowers []*
 	if length > len(validatorHeap) {
 		length = len(validatorHeap)
 	}
-	eligibleValidators := make([]common.Address, length)
-	eligibleVotingPowers := make([]uint64, length)
+	eValidators := make([]common.Address, length)
+	eVotingPowers := make([]uint64, length)
+	eVoteAddrs := make([][]byte, length)
 	for i := 0; i < length; i++ {
 		item := heap.Pop(hp).(ValidatorItem)
-		eligibleValidators[i] = item.address
-		eligibleVotingPowers[i] = new(big.Int).Div(item.votingPower, big.NewInt(1e10)).Uint64() // to avoid overflow
+		eValidators[i] = item.address
+		eVotingPowers[i] = new(big.Int).Div(item.votingPower, big.NewInt(1e10)).Uint64() // to avoid overflow
+		eVoteAddrs[i] = voteAddrs[i]
 	}
 
-	return eligibleValidators, eligibleVotingPowers
+	return eValidators, eVotingPowers, eVoteAddrs
 }

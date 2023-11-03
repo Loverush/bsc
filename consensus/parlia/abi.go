@@ -2727,6 +2727,19 @@ const validatorSetABI = `
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "consensusAddress",
+        "type": "address"
+      }
+    ],
+    "name": "jailValidator",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "maintainSlashScale",
     "outputs": [
@@ -2907,7 +2920,50 @@ const validatorSetABI = `
     "type": "function"
   },
   {
-    "inputs": [],
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "consensusAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address payable",
+            "name": "feeAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "BBCFeeAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "uint64",
+            "name": "votingPower",
+            "type": "uint64"
+          },
+          {
+            "internalType": "bool",
+            "name": "jailed",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "incoming",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct BSCValidatorSet.Validator[]",
+        "name": "_validatorSet",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "bytes[]",
+        "name": "_voteAddrs",
+        "type": "bytes[]"
+      }
+    ],
     "name": "updateValidatorSetV2",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -3897,13 +3953,7 @@ const stakeABI = `
       {
         "indexed": true,
         "internalType": "address",
-        "name": "oldAddress",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "newAddress",
+        "name": "newConsensusAddress",
         "type": "address"
       }
     ],
@@ -3958,6 +4008,25 @@ const stakeABI = `
     "anonymous": false,
     "inputs": [
       {
+        "indexed": false,
+        "internalType": "string",
+        "name": "key",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "value",
+        "type": "bytes"
+      }
+    ],
+    "name": "ParamChange",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": true,
         "internalType": "address",
         "name": "srcValidator",
@@ -3995,6 +4064,25 @@ const stakeABI = `
       }
     ],
     "name": "Redelegated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "operatorAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "failReason",
+        "type": "bytes"
+      }
+    ],
+    "name": "RewardDistributeFailed",
     "type": "event"
   },
   {
@@ -4077,7 +4165,7 @@ const stakeABI = `
       {
         "indexed": true,
         "internalType": "address",
-        "name": "poolModule",
+        "name": "creditContract",
         "type": "address"
       },
       {
@@ -4088,6 +4176,19 @@ const stakeABI = `
       }
     ],
     "name": "ValidatorCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "operatorAddress",
+        "type": "address"
+      }
+    ],
+    "name": "ValidatorEmptyJailed",
     "type": "event"
   },
   {
@@ -4173,25 +4274,6 @@ const stakeABI = `
     "type": "event"
   },
   {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "key",
-        "type": "string"
-      },
-      {
-        "indexed": false,
-        "internalType": "bytes",
-        "name": "value",
-        "type": "bytes"
-      }
-    ],
-    "name": "paramChange",
-    "type": "event"
-  },
-  {
     "inputs": [],
     "name": "BLS_PUBKEY_LENGTH",
     "outputs": [
@@ -4219,6 +4301,19 @@ const stakeABI = `
   },
   {
     "inputs": [],
+    "name": "CROSS_CHAIN_CONTRACT_ADDR",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "DEAD_ADDRESS",
     "outputs": [
       {
@@ -4232,7 +4327,7 @@ const stakeABI = `
   },
   {
     "inputs": [],
-    "name": "GOVERNANCE_ADDR",
+    "name": "GOVERNOR_ADDR",
     "outputs": [
       {
         "internalType": "address",
@@ -4258,59 +4353,7 @@ const stakeABI = `
   },
   {
     "inputs": [],
-    "name": "INIT_DOUBLE_SIGN_JAIL_TIME",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "INIT_DOUBLE_SIGN_SLASH_AMOUNT",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "INIT_DOWNTIME_JAIL_TIME",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "INIT_DOWNTIME_SLASH_AMOUNT",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "INIT_GOV_BNB",
+    "name": "GOV_TOKEN_ADDR",
     "outputs": [
       {
         "internalType": "address",
@@ -4323,59 +4366,7 @@ const stakeABI = `
   },
   {
     "inputs": [],
-    "name": "INIT_MAX_ELECTED_VALIDATORS",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "INIT_MAX_EVIDENCE_AGE",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "INIT_MIN_DELEGATION_BNB_CHANGE",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "INIT_MIN_SELF_DELEGATION_BNB",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "INIT_POOL_IMPLEMENTATION",
+    "name": "INCENTIVIZE_ADDR",
     "outputs": [
       {
         "internalType": "address",
@@ -4388,12 +4379,12 @@ const stakeABI = `
   },
   {
     "inputs": [],
-    "name": "INIT_TRANSFER_GAS_LIMIT",
+    "name": "LIGHT_CLIENT_ADDR",
     "outputs": [
       {
-        "internalType": "uint256",
+        "internalType": "address",
         "name": "",
-        "type": "uint256"
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -4401,12 +4392,12 @@ const stakeABI = `
   },
   {
     "inputs": [],
-    "name": "INIT_UNBOND_PERIOD",
+    "name": "RELAYERHUB_CONTRACT_ADDR",
     "outputs": [
       {
-        "internalType": "uint256",
+        "internalType": "address",
         "name": "",
-        "type": "uint256"
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -4415,6 +4406,19 @@ const stakeABI = `
   {
     "inputs": [],
     "name": "SLASH_CONTRACT_ADDR",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "STAKE_CREDIT_ADDR",
     "outputs": [
       {
         "internalType": "address",
@@ -4440,7 +4444,59 @@ const stakeABI = `
   },
   {
     "inputs": [],
+    "name": "STAKING_CONTRACT_ADDR",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "SYSTEM_REWARD_ADDR",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "TIMELOCK_ADDR",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "TOKEN_HUB_ADDR",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "TOKEN_MANAGER_ADDR",
     "outputs": [
       {
         "internalType": "address",
@@ -4459,19 +4515,6 @@ const stakeABI = `
         "internalType": "address",
         "name": "",
         "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "bscChainID",
-    "outputs": [
-      {
-        "internalType": "uint16",
-        "name": "",
-        "type": "uint16"
       }
     ],
     "stateMutability": "view",
@@ -4661,11 +4704,6 @@ const stakeABI = `
         "internalType": "address",
         "name": "consensusAddress",
         "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "height",
-        "type": "uint256"
       }
     ],
     "name": "downtimeSlash",
@@ -4703,7 +4741,7 @@ const stakeABI = `
     "inputs": [
       {
         "internalType": "address",
-        "name": "newConsensus",
+        "name": "newConsensusAddress",
         "type": "address"
       }
     ],
@@ -4767,7 +4805,7 @@ const stakeABI = `
   },
   {
     "inputs": [],
-    "name": "getEligibleValidators",
+    "name": "getEligibleValidatorSet",
     "outputs": [
       {
         "components": [
@@ -4909,7 +4947,7 @@ const stakeABI = `
       },
       {
         "internalType": "address",
-        "name": "poolModule",
+        "name": "creditContract",
         "type": "address"
       },
       {
@@ -5021,7 +5059,7 @@ const stakeABI = `
         "type": "uint256"
       }
     ],
-    "name": "getValidatorWithVotingPower",
+    "name": "getValidatorElectionInfo",
     "outputs": [
       {
         "internalType": "address[]",
@@ -5034,22 +5072,14 @@ const stakeABI = `
         "type": "uint256[]"
       },
       {
+        "internalType": "bytes[]",
+        "name": "voteAddrs",
+        "type": "bytes[]"
+      },
+      {
         "internalType": "uint256",
         "name": "totalLength",
         "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "govBNB",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -5147,22 +5177,22 @@ const stakeABI = `
   },
   {
     "inputs": [],
-    "name": "pauseStaking",
-    "outputs": [],
-    "stateMutability": "nonpayable",
+    "name": "numOfJailed",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
-    "name": "poolImplementation",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
+    "name": "pauseStaking",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -5191,6 +5221,24 @@ const stakeABI = `
   {
     "inputs": [],
     "name": "resumeStaking",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "operatorAddresses",
+        "type": "address[]"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "sync",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -5263,9 +5311,14 @@ const stakeABI = `
         "internalType": "uint64[]",
         "name": "votingPowers",
         "type": "uint64[]"
+      },
+      {
+        "internalType": "bytes[]",
+        "name": "voteAddrs",
+        "type": "bytes[]"
       }
     ],
-    "name": "updateEligibleValidators",
+    "name": "updateEligibleValidatorSet",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -5284,13 +5337,6 @@ const stakeABI = `
       }
     ],
     "name": "updateParam",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "upgradePoolImplementation",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
