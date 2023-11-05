@@ -115,13 +115,13 @@ func (p *Parlia) getValidatorElectionInfo(blockNr rpc.BlockNumberOrHash) (valida
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // cancel when we are finished consuming integers
 
-	method := "getValidatorWithVotingPower"
+	method := "getValidatorElectionInfo"
 	toAddress := common.HexToAddress(systemcontracts.StakeHubContract)
 	gas := (hexutil.Uint64)(uint64(math.MaxUint64 / 2))
 
 	data, err := p.stakeHubABI.Pack(method, big.NewInt(0), big.NewInt(0))
 	if err != nil {
-		log.Error("Unable to pack tx for getValidatorWithVotingPower", "error", err)
+		log.Error("Unable to pack tx for getValidatorElectionInfo", "error", err)
 		return nil, nil, nil, err
 	}
 	msgData := (hexutil.Bytes)(data)
