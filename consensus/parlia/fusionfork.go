@@ -28,11 +28,14 @@ func (p *Parlia) initializeFusionContract(state *state.StateDB, header *types.He
 	// TODO: add all contracts that need to be initialized
 	contracts := []string{
 		systemcontracts.StakeHubContract,
+		systemcontracts.GovernorContract,
+		systemcontracts.GovTokenContract,
+		systemcontracts.TimelockContract,
 	}
 	// get packed data
 	data, err := p.stakeHubABI.Pack(method)
 	if err != nil {
-		log.Error("Unable to pack tx for init fusion contract", "error", err)
+		log.Error("Unable to pack tx for initialize fusion contract", "error", err)
 		return err
 	}
 	for _, c := range contracts {
@@ -50,6 +53,7 @@ func (p *Parlia) initializeFusionContract(state *state.StateDB, header *types.He
 type ValidatorItem struct {
 	address     common.Address
 	votingPower *big.Int
+	voteAddress []byte
 }
 
 // An ValidatorHeap is a max-heap of validator's votingPower.
@@ -185,6 +189,7 @@ func getTopValidatorsByVotingPower(validators []common.Address, votingPowers []*
 			validatorHeap = append(validatorHeap, ValidatorItem{
 				address:     validators[i],
 				votingPower: votingPowers[i],
+				voteAddress: voteAddrs[i],
 			})
 		}
 	}
@@ -202,7 +207,7 @@ func getTopValidatorsByVotingPower(validators []common.Address, votingPowers []*
 		item := heap.Pop(hp).(ValidatorItem)
 		eValidators[i] = item.address
 		eVotingPowers[i] = new(big.Int).Div(item.votingPower, big.NewInt(1e10)).Uint64() // to avoid overflow
-		eVoteAddrs[i] = voteAddrs[i]
+		eVoteAddrs[i] = item.voteAddress
 	}
 
 	return eValidators, eVotingPowers, eVoteAddrs
