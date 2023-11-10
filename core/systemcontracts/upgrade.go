@@ -823,7 +823,8 @@ func init() {
 		},
 	}
 
-	latestUpgrade[defaultNet] = latestUpgrade[rialtoNet]
+	// TODO: revert this
+	// latestUpgrade[defaultNet] = latestUpgrade[rialtoNet]
 }
 
 func UpgradeBuildInSystemContract(config *params.ChainConfig, blockNumber *big.Int, statedb *state.StateDB) {

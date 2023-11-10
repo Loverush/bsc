@@ -1157,7 +1157,9 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 		if parent == nil {
 			return errors.New("parent not found")
 		}
-		if time.Unix(int64(parent.Time), 0).Day() == time.Unix(int64(header.Time), 0).Day()-1 {
+		// TODO: revert this
+		// if time.Unix(int64(parent.Time), 0).Day() == time.Unix(int64(header.Time), 0).Day()-1 {
+		if time.Unix(int64(header.Time), 0).Minute()%5 == 0 {
 			if err := p.updateEligibleValidatorSet(state, header, cx, txs, receipts, systemTxs, usedGas, false); err != nil {
 				return err
 			}
@@ -1239,7 +1241,9 @@ func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 		if parent == nil {
 			return nil, nil, errors.New("parent not found")
 		}
-		if time.Unix(int64(parent.Time), 0).Day() == time.Unix(int64(header.Time), 0).Day()-1 {
+		// TODO: revert this
+		// if time.Unix(int64(parent.Time), 0).Day() == time.Unix(int64(header.Time), 0).Day()-1 {
+		if time.Unix(int64(header.Time), 0).Minute()%5 == 0 {
 			if err := p.updateEligibleValidatorSet(state, header, cx, &txs, &receipts, nil, &header.GasUsed, true); err != nil {
 				return nil, nil, err
 			}
