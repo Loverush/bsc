@@ -408,13 +408,16 @@ func (c *tmSignatureRecover) RequiredGas(input []byte) uint64 {
 }
 
 const (
-	tmPubKeyLength       uint8 = 33
-	tmSignatureLength    uint8 = 64
-	tmSignatureMsgLength uint8 = 32
+	tmPubKeyLength           uint8 = 33
+	tmSignatureLength        uint8 = 64
+	tmSignatureMsgHashLength uint8 = 32
 )
 
+// input:
+// | tmPubKey | tmSignature  |  tmSignatureMsgHash  |
+// | 33 bytes |  64 bytes    |       32 bytes       |
 func (c *tmSignatureRecover) Run(input []byte) (result []byte, err error) {
-	if len(input) != int(tmPubKeyLength)+int(tmSignatureLength)+int(tmSignatureMsgLength) {
+	if len(input) != int(tmPubKeyLength)+int(tmSignatureLength)+int(tmSignatureMsgHashLength) {
 		return nil, fmt.Errorf("invalid input")
 	}
 
