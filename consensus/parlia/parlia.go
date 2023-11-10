@@ -91,6 +91,9 @@ var (
 		common.HexToAddress(systemcontracts.RelayerIncentivizeContract): true,
 		common.HexToAddress(systemcontracts.CrossChainContract):         true,
 		common.HexToAddress(systemcontracts.StakeHubContract):           true,
+		common.HexToAddress(systemcontracts.GovernorContract):           true,
+		common.HexToAddress(systemcontracts.GovTokenContract):           true,
+		common.HexToAddress(systemcontracts.TimelockContract):           true,
 	}
 )
 
@@ -1147,7 +1150,7 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 	if p.chainConfig.IsOnFusion(header.Number) {
 		err := p.initializeFusionContract(state, header, cx, txs, receipts, systemTxs, usedGas, false)
 		if err != nil {
-			log.Error("init fusion contract failed")
+			log.Error("init fusion contract failed", "error", err)
 		}
 	}
 
@@ -1158,7 +1161,7 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 			return errors.New("parent not found")
 		}
 		// TODO: revert this
-		// if time.Unix(int64(parent.Time), 0).Day() == time.Unix(int64(header.Time), 0).Day()-1 {
+		// if time.Unix(int64(parent.Time), 0).Day() < time.Unix(int64(header.Time), 0).Day() {
 		if time.Unix(int64(header.Time), 0).Minute()%5 == 0 {
 			if err := p.updateEligibleValidatorSet(state, header, cx, txs, receipts, systemTxs, usedGas, false); err != nil {
 				return err
@@ -1231,7 +1234,7 @@ func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 	if p.chainConfig.IsOnFusion(header.Number) {
 		err := p.initializeFusionContract(state, header, cx, &txs, &receipts, nil, &header.GasUsed, true)
 		if err != nil {
-			log.Error("init fusion contract failed")
+			log.Error("init fusion contract failed", "error", err)
 		}
 	}
 
@@ -1242,7 +1245,7 @@ func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 			return nil, nil, errors.New("parent not found")
 		}
 		// TODO: revert this
-		// if time.Unix(int64(parent.Time), 0).Day() == time.Unix(int64(header.Time), 0).Day()-1 {
+		// if time.Unix(int64(parent.Time), 0).Day() < time.Unix(int64(header.Time), 0).Day() {
 		if time.Unix(int64(header.Time), 0).Minute()%5 == 0 {
 			if err := p.updateEligibleValidatorSet(state, header, cx, &txs, &receipts, nil, &header.GasUsed, true); err != nil {
 				return nil, nil, err
@@ -1582,35 +1585,35 @@ func (p *Parlia) getCurrentValidators(blockHash common.Hash, blockNum *big.Int) 
 		return nil, nil, err
 	}
 
-	var valSet []common.Address
-	var voteAddrSet []types.BLSPublicKey
-
-	if err := p.validatorSetABI.UnpackIntoInterface(&[]interface{}{&valSet, &voteAddrSet}, method, result); err != nil {
+	var valAddrs []common.Address
+	var voteAddrs []types.BLSPublicKey
+	if err := p.validatorSetABI.UnpackIntoInterface(&[]interface{}{&valAddrs, &voteAddrs}, method, result); err != nil {
 		return nil, nil, err
 	}
 
-	voteAddrMap := make(map[common.Address]*types.BLSPublicKey, len(valSet))
-	voteAddrExist := make(map[types.BLSPublicKey]bool, len(valSet))
-
 	// after FusionBlock, there may be same validator from BC and BSC
-	// we should remove duplicated consensus address and vote address
-	// if duplicated, use the first one which has most voting power
-	for i := 0; i < len(valSet); i++ {
-		key := valSet[i]
-		value := voteAddrSet[i]
+	// we should remove duplicated consensus address and vote address if duplicated
+	// only keep the first one which has most voting power
+	var valSet []common.Address
+	voteAddrMap := make(map[common.Address]*types.BLSPublicKey, len(valAddrs))
+	voteAddrExist := make(map[types.BLSPublicKey]bool, len(valAddrs))
+	for i := 0; i < len(valAddrs); i++ {
+		consensusAddr := valAddrs[i]
+		voteAddr := voteAddrs[i]
 
 		// check duplicated consensus address
-		if _, ok := voteAddrMap[key]; ok {
+		if _, ok := voteAddrMap[consensusAddr]; ok {
 			continue
 		}
 
 		// check duplicated vote address
-		if _, ok := voteAddrExist[value]; ok {
+		if _, ok := voteAddrExist[voteAddr]; ok {
 			continue
 		}
 
-		voteAddrMap[key] = &value
-		voteAddrExist[value] = true
+		valSet = append(valSet, consensusAddr)
+		voteAddrMap[consensusAddr] = &voteAddr
+		voteAddrExist[voteAddr] = true
 	}
 	return valSet, voteAddrMap, nil
 }

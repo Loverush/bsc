@@ -58,7 +58,8 @@ var (
 
 	fusionUpgrade = make(map[string]*Upgrade)
 
-	latestUpgrade = fusionUpgrade
+	// TODO: revert this
+	// latestUpgrade = fusionUpgrade
 )
 
 func init() {
@@ -699,7 +700,7 @@ func init() {
 		},
 	}
 
-	// TODO: governance contract
+	// TODO: update to latest
 	fusionUpgrade[mainNet] = &Upgrade{
 		UpgradeName: "fusion",
 		Configs: []*UpgradeConfig{

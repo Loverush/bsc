@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rlp"
+
 	"golang.org/x/crypto/sha3"
 )
 
@@ -561,8 +562,7 @@ func (d *DiffLayer) DecodeRLP(s *rlp.Stream) error {
 	if err := s.Decode(&ed); err != nil {
 		return err
 	}
-	d.BlockHash, d.Number, d.Codes, d.Destructs, d.Accounts, d.Storages =
-		ed.BlockHash, ed.Number, ed.Codes, ed.Destructs, ed.Accounts, ed.Storages
+	d.BlockHash, d.Number, d.Codes, d.Destructs, d.Accounts, d.Storages = ed.BlockHash, ed.Number, ed.Codes, ed.Destructs, ed.Accounts, ed.Storages
 
 	d.Receipts = make([]*Receipt, len(ed.Receipts))
 	for i, storageReceipt := range ed.Receipts {
@@ -609,6 +609,7 @@ func (storage *DiffStorage) Swap(i, j int) {
 	storage.Keys[i], storage.Keys[j] = storage.Keys[j], storage.Keys[i]
 	storage.Vals[i], storage.Vals[j] = storage.Vals[j], storage.Vals[i]
 }
+
 func (storage *DiffStorage) Less(i, j int) bool {
 	return string(storage.Keys[i][:]) < string(storage.Keys[j][:])
 }

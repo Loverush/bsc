@@ -1,7 +1,6 @@
 package parlia
 
 import (
-	"container/heap"
 	"math/big"
 	"testing"
 
@@ -10,24 +9,30 @@ import (
 
 func TestValidatorHeap(t *testing.T) {
 	testCases := []struct {
-		description  string
-		k            int
-		validators   []common.Address
-		votingPowers []uint64
-		expected     []common.Address
+		description string
+		k           int64
+		validators  []ValidatorItem
+		expected    []common.Address
 	}{
 		{
 			description: "normal case",
 			k:           2,
-			validators: []common.Address{
-				common.HexToAddress("0x1"),
-				common.HexToAddress("0x2"),
-				common.HexToAddress("0x3"),
-			},
-			votingPowers: []uint64{
-				300,
-				200,
-				100,
+			validators: []ValidatorItem{
+				{
+					address:     common.HexToAddress("0x1"),
+					votingPower: new(big.Int).Mul(big.NewInt(300), big.NewInt(1e10)),
+					voteAddress: []byte("0x1"),
+				},
+				{
+					address:     common.HexToAddress("0x2"),
+					votingPower: new(big.Int).Mul(big.NewInt(200), big.NewInt(1e10)),
+					voteAddress: []byte("0x2"),
+				},
+				{
+					address:     common.HexToAddress("0x3"),
+					votingPower: new(big.Int).Mul(big.NewInt(100), big.NewInt(1e10)),
+					voteAddress: []byte("0x3"),
+				},
 			},
 			expected: []common.Address{
 				common.HexToAddress("0x1"),
@@ -37,15 +42,22 @@ func TestValidatorHeap(t *testing.T) {
 		{
 			description: "same voting power",
 			k:           2,
-			validators: []common.Address{
-				common.HexToAddress("0x1"),
-				common.HexToAddress("0x2"),
-				common.HexToAddress("0x3"),
-			},
-			votingPowers: []uint64{
-				300,
-				100,
-				100,
+			validators: []ValidatorItem{
+				{
+					address:     common.HexToAddress("0x1"),
+					votingPower: new(big.Int).Mul(big.NewInt(300), big.NewInt(1e10)),
+					voteAddress: []byte("0x1"),
+				},
+				{
+					address:     common.HexToAddress("0x2"),
+					votingPower: new(big.Int).Mul(big.NewInt(100), big.NewInt(1e10)),
+					voteAddress: []byte("0x2"),
+				},
+				{
+					address:     common.HexToAddress("0x3"),
+					votingPower: new(big.Int).Mul(big.NewInt(100), big.NewInt(1e10)),
+					voteAddress: []byte("0x3"),
+				},
 			},
 			expected: []common.Address{
 				common.HexToAddress("0x1"),
@@ -55,17 +67,27 @@ func TestValidatorHeap(t *testing.T) {
 		{
 			description: "zero voting power and k > len(validators)",
 			k:           5,
-			validators: []common.Address{
-				common.HexToAddress("0x1"),
-				common.HexToAddress("0x2"),
-				common.HexToAddress("0x3"),
-				common.HexToAddress("0x4"),
-			},
-			votingPowers: []uint64{
-				300,
-				0,
-				0,
-				0,
+			validators: []ValidatorItem{
+				{
+					address:     common.HexToAddress("0x1"),
+					votingPower: new(big.Int).Mul(big.NewInt(300), big.NewInt(1e10)),
+					voteAddress: []byte("0x1"),
+				},
+				{
+					address:     common.HexToAddress("0x2"),
+					votingPower: big.NewInt(0),
+					voteAddress: []byte("0x2"),
+				},
+				{
+					address:     common.HexToAddress("0x3"),
+					votingPower: big.NewInt(0),
+					voteAddress: []byte("0x3"),
+				},
+				{
+					address:     common.HexToAddress("0x4"),
+					votingPower: big.NewInt(0),
+					voteAddress: []byte("0x4"),
+				},
 			},
 			expected: []common.Address{
 				common.HexToAddress("0x1"),
@@ -74,17 +96,27 @@ func TestValidatorHeap(t *testing.T) {
 		{
 			description: "zero voting power and k < len(validators)",
 			k:           2,
-			validators: []common.Address{
-				common.HexToAddress("0x1"),
-				common.HexToAddress("0x2"),
-				common.HexToAddress("0x3"),
-				common.HexToAddress("0x4"),
-			},
-			votingPowers: []uint64{
-				300,
-				0,
-				0,
-				0,
+			validators: []ValidatorItem{
+				{
+					address:     common.HexToAddress("0x1"),
+					votingPower: new(big.Int).Mul(big.NewInt(300), big.NewInt(1e10)),
+					voteAddress: []byte("0x1"),
+				},
+				{
+					address:     common.HexToAddress("0x2"),
+					votingPower: big.NewInt(0),
+					voteAddress: []byte("0x2"),
+				},
+				{
+					address:     common.HexToAddress("0x3"),
+					votingPower: big.NewInt(0),
+					voteAddress: []byte("0x3"),
+				},
+				{
+					address:     common.HexToAddress("0x4"),
+					votingPower: big.NewInt(0),
+					voteAddress: []byte("0x4"),
+				},
 			},
 			expected: []common.Address{
 				common.HexToAddress("0x1"),
@@ -93,53 +125,41 @@ func TestValidatorHeap(t *testing.T) {
 		{
 			description: "all zero voting power",
 			k:           2,
-			validators: []common.Address{
-				common.HexToAddress("0x1"),
-				common.HexToAddress("0x2"),
-				common.HexToAddress("0x3"),
-				common.HexToAddress("0x4"),
-			},
-			votingPowers: []uint64{
-				0,
-				0,
-				0,
-				0,
+			validators: []ValidatorItem{
+				{
+					address:     common.HexToAddress("0x1"),
+					votingPower: big.NewInt(0),
+					voteAddress: []byte("0x1"),
+				},
+				{
+					address:     common.HexToAddress("0x2"),
+					votingPower: big.NewInt(0),
+					voteAddress: []byte("0x2"),
+				},
+				{
+					address:     common.HexToAddress("0x3"),
+					votingPower: big.NewInt(0),
+					voteAddress: []byte("0x3"),
+				},
+				{
+					address:     common.HexToAddress("0x4"),
+					votingPower: big.NewInt(0),
+					voteAddress: []byte("0x4"),
+				},
 			},
 			expected: []common.Address{},
 		},
 	}
 	for _, tc := range testCases {
-		var h ValidatorHeap
-		for i := 0; i < len(tc.validators); i++ {
-			if tc.votingPowers[i] > 0 {
-				h = append(h, ValidatorItem{
-					address:     tc.validators[i],
-					votingPower: new(big.Int).Mul(big.NewInt(int64(tc.votingPowers[i])), big.NewInt(1e10)),
-				})
-			}
-		}
-		hp := &h
-		heap.Init(hp)
-
-		length := tc.k
-		if length > len(h) {
-			length = len(h)
-		}
-		eligibleValidators := make([]common.Address, length)
-		eligibleVotingPowers := make([]uint64, length)
-		for i := 0; i < length; i++ {
-			item := heap.Pop(hp).(ValidatorItem)
-			eligibleValidators[i] = item.address
-			eligibleVotingPowers[i] = new(big.Int).Div(item.votingPower, big.NewInt(1e10)).Uint64() // to avoid overflow
-		}
+		eligibleValidators, _, _ := getTopValidatorsByVotingPower(tc.validators, big.NewInt(tc.k))
 
 		// check
 		if len(eligibleValidators) != len(tc.expected) {
-			t.Errorf("expected %d, got %d", len(tc.expected), len(h))
+			t.Errorf("expected %d, got %d", len(tc.expected), len(eligibleValidators))
 		}
 		for i := 0; i < len(tc.expected); i++ {
 			if eligibleValidators[i] != tc.expected[i] {
-				t.Errorf("expected %s, got %s", tc.expected[i].Hex(), h[i].address.Hex())
+				t.Errorf("expected %s, got %s", tc.expected[i].Hex(), eligibleValidators[i].Hex())
 			}
 		}
 	}
